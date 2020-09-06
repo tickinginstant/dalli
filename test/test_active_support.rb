@@ -10,7 +10,17 @@ class MockUser
   end
 end
 
-class MockUserVersioning
+class MockUserWithSeparateVersion  
+  def cache_key
+    "users/1"
+  end
+  
+  def cache_version
+    "241012793847982434"
+  end
+end
+
+class MockUserWithJointVersion
   def cache_key_with_version
     "users/1/241012793847982434"
   end
@@ -161,8 +171,15 @@ describe 'ActiveSupport::Cache::DalliStore' do
         assert_equal false, dvalue
       end
 
-      it_with_and_without_local_cache 'support object with cache_key_with_version' do
-        user = MockUserVersioning.new
+      it_with_and_without_local_cache 'support object with cache_key and cache_version' do
+        user = MockUserWithSeparateVersion.new
+        @dalli.write("#{user.cache_key}-#{user.cache_version}", false)
+        dvalue = @dalli.fetch(user) { flunk }
+        assert_equal false, dvalue
+      end
+
+     it_with_and_without_local_cache 'support object with cache_key_with_version' do
+        user = MockUserWithJointVersion.new
         @dalli.write(user.cache_key_with_version, false)
         dvalue = @dalli.fetch(user) { flunk }
         assert_equal false, dvalue
