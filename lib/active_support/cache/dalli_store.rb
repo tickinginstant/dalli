@@ -98,7 +98,7 @@ module ActiveSupport
       def fetch(name, options=nil)
         options ||= {}
         options[:cache_nils] = true if @options[:cache_nils]
-        namespaced_name = namespaced_key(name, options)
+        namespaced_name = normalize_key_with_version(name, options)
         not_found = options[:cache_nils] ? Dalli::Server::NOT_FOUND : nil
         if block_given?
           entry = not_found
@@ -130,7 +130,7 @@ module ActiveSupport
 
       def read(name, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
 
         instrument_with_log(:read, name, options) do |payload|
           entry = read_entry(name, options)
@@ -141,7 +141,7 @@ module ActiveSupport
 
       def write(name, value, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
 
         instrument_with_log(:write, name, options) do |payload|
           with do |connection|
@@ -153,7 +153,7 @@ module ActiveSupport
 
       def exist?(name, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
 
         log(:exist, name, options)
         !read_entry(name, options).nil?
@@ -161,7 +161,7 @@ module ActiveSupport
 
       def delete(name, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
 
         instrument_with_log(:delete, name, options) do |payload|
           delete_entry(name, options)
@@ -172,7 +172,7 @@ module ActiveSupport
       # servers for all keys. Keys must be Strings.
       def read_multi(*names)
         options  = names.extract_options!
-        mapping = names.inject({}) { |memo, name| memo[namespaced_key(name, options)] = name; memo }
+        mapping = names.inject({}) { |memo, name| memo[normalize_key_with_version(name, options)] = name; memo }
         instrument_with_log(:read_multi, mapping.keys) do
           results = {}
           if local_cache
@@ -202,7 +202,7 @@ module ActiveSupport
       # and the result will be written to the cache and returned.
       def fetch_multi(*names)
         options = names.extract_options!
-        mapping = names.inject({}) { |memo, name| memo[namespaced_key(name, options)] = name; memo }
+        mapping = names.inject({}) { |memo, name| memo[normalize_key_with_version(name, options)] = name; memo }
 
         instrument_with_log(:fetch_multi, mapping.keys) do
           with do |connection|
@@ -232,7 +232,7 @@ module ActiveSupport
       # memcached counters cannot hold negative values.
       def increment(name, amount = 1, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
         initial = options.has_key?(:initial) ? options[:initial] : amount
         expires_in = options[:expires_in]
         instrument_with_log(:increment, name, :amount => amount) do
@@ -252,7 +252,7 @@ module ActiveSupport
       # memcached counters cannot hold negative values.
       def decrement(name, amount = 1, options=nil)
         options ||= {}
-        name = namespaced_key(name, options)
+        name = normalize_key_with_version(name, options)
         initial = options.has_key?(:initial) ? options[:initial] : 0
         expires_in = options[:expires_in]
         instrument_with_log(:decrement, name, :amount => amount) do
@@ -356,7 +356,6 @@ module ActiveSupport
       # Invoke +cache_key+ if object responds to +cache_key+. Otherwise, to_param method
       # will be called. If the key is a Hash, then keys will be sorted alphabetically.
       def expanded_key(key) # :nodoc:
-        return key.cache_key_with_version.to_s if key.respond_to?(:cache_key_with_version)
         return key.cache_key.to_s if key.respond_to?(:cache_key)
 
         case key
@@ -364,7 +363,7 @@ module ActiveSupport
           if key.size > 1
             key = key.collect{|element| expanded_key(element)}
           else
-            key = key.first
+            key = expanded_key(key.first)
           end
         when Hash
           key = key.sort_by { |k,_| k.to_s }.collect{|k,v| "#{k}=#{v}"}
@@ -376,6 +375,31 @@ module ActiveSupport
           key.force_encoding('binary')
         end
         key
+      end
+    
+      # Borrowed from Rails's ActiveSupport::Cache::Store
+      def normalize_version(key, options)
+        (options && options[:version].try(:to_param)) || expanded_version(key)
+      end
+    
+      # Borrowed from Rails's ActiveSupport::Cache::Store
+      def expanded_version(key)
+        case
+        when key.respond_to?(:cache_version) then key.cache_version.to_param
+        when key.is_a?(Array)                then key.map { |element| expanded_version(element) }.compact.to_param
+        when key.respond_to?(:to_a)          then expanded_version(key.to_a)
+        end
+      end
+          
+      def normalize_key_with_version(key, options)
+        normalized_key = normalize_key(key, options)
+        normalized_version = normalize_version(key, options)
+        
+        if normalized_version.blank?
+          normalized_key
+        else
+          "#{normalized_key}-#{normalized_version}"
+        end
       end
 
       def log_dalli_error(error)
