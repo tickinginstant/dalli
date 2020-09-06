@@ -26,6 +26,20 @@ class MockUserWithJointVersion
   end
 end
 
+class MockUserWithEverything 
+  def cache_key
+    "users/1"
+  end
+  
+  def cache_version
+    "241012793847982434"
+  end
+  
+  def cache_key_with_version
+    raise "Prefer cache_key + cache_version over cache_key_with_version."
+  end
+end
+
 class ObjectRaisingEquality
   def ==(other)
     raise "Equality called on fetched object."
@@ -178,9 +192,16 @@ describe 'ActiveSupport::Cache::DalliStore' do
         assert_equal false, dvalue
       end
 
-     it_with_and_without_local_cache 'support object with cache_key_with_version' do
+      it_with_and_without_local_cache 'support object with cache_key_with_version' do
         user = MockUserWithJointVersion.new
         @dalli.write(user.cache_key_with_version, false)
+        dvalue = @dalli.fetch(user) { flunk }
+        assert_equal false, dvalue
+      end
+      
+      it_with_and_without_local_cache 'ignores cache_key_with_version in favor of cache_key' do
+        user = MockUserWithEverything.new
+        @dalli.write("#{user.cache_key}-#{user.cache_version}", false)
         dvalue = @dalli.fetch(user) { flunk }
         assert_equal false, dvalue
       end
