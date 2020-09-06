@@ -392,6 +392,8 @@ module ActiveSupport
       end
           
       def normalize_key_with_version(key, options)
+        return key.cache_key_with_version if key.respond_to?(:cache_key_with_version)
+        
         normalized_key = normalize_key(key, options)
         normalized_version = normalize_version(key, options)
         
